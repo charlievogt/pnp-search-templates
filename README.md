@@ -2,7 +2,7 @@
 
 Three Handlebars templates for the [PnP Modern Search](https://microsoft-search.github.io/pnp-modern-search/) Search Results web part. The first two render a trailing-twelve-months tab strip whose labels and routing rules are recomputed from `new Date()` every time the page renders, so an HR page that used to need a monthly edit just keeps working. The third is a top-of-page strip with three fixed buckets (Coming Soon / Promotions & Transfers / Departing Employees) evaluated against `today` at render time.
 
-I wrote up the why and the gotchas [in the post](https://charlie.tools/blog/pnp-search-trailing-month-tabs). This README is the operator's manual.
+I wrote up the why and the gotchas [in the post](https://charlie.tools/posts/pnp-search-trailing-month-tabs). This README is the operator's manual.
 
 ## What's in here
 
