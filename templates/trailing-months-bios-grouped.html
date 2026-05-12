@@ -1,0 +1,279 @@
+<content id="data-content">
+
+  {{!--
+    Trailing-12-months tab strip + card grid for PnP Modern Search.
+
+    Same trailing-12-months engine as trailing-months-bios.html; the only
+    change is the tab strip:
+
+      • "Older" sits outside as its own pill.
+      • The 12 trailing months live in ONE rounded segmented container,
+        split into two year columns. Each column has a small uppercase
+        year label ABOVE its row of short month labels.
+      • A 1px divider between the two year columns.
+
+    The year columns are derived from "today" with no hardcoded years.
+    Each year column iterates the same 12-duration list and only renders
+    a month tab whose YYYY matches that column's year. The previous-year
+    column auto-hides (CSS :empty fallback) on the one month a year
+    (December) when all 12 trailing months land in the same calendar year.
+
+    Tab switching is pure CSS via hidden <input type="radio"> + :has()
+    sibling selectors. No JavaScript.
+
+    Expected `data.items` shape: same as trailing-months-bios.html —
+      Title, EffectiveDate, Position, Location, Narrative, PhotoUrl.
+
+    We alias `@root.theme` as `t` at the top so per-token references
+    inside the style block read as `t.palette.themePrimary` etc. Same
+    end result as the flat-strip template, slightly less typing.
+  --}}
+
+  {{#with @root.theme as |t|}}
+  <style>
+    .bio-page-container { max-width: 1280px; }
+
+    /* ── Tab strip ────────────────────────────────────────────────── */
+
+    .bio-tab-input { position: absolute; opacity: 0; pointer-events: none; }
+
+    .bio-tabs {
+      display: flex; align-items: stretch; flex-wrap: wrap;
+      gap: 10px; margin-bottom: 22px;
+    }
+
+    /* Segmented container holding the two year columns */
+    .bio-tabs-segmented {
+      display: inline-flex; align-items: stretch;
+      background: {{t.palette.neutralLighterAlt}};
+      border: 1px solid {{t.palette.neutralLighter}};
+      border-radius: 8px;
+      padding: 4px 6px; gap: 6px;
+    }
+    .bio-tab-divider {
+      width: 1px; align-self: stretch;
+      margin: 4px 0;
+      background: {{t.palette.neutralLighter}};
+    }
+
+    /* One year column = label on top + month-row below */
+    .bio-tab-year {
+      display: flex; flex-direction: column;
+      padding: 2px 4px 0; gap: 2px;
+    }
+    .bio-tab-year:empty { display: none; }
+    .bio-tab-year-label {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: {{t.palette.neutralTertiary}};
+      padding-left: 8px; margin-bottom: 2px;
+      user-select: none;
+    }
+    .bio-tab-months { display: flex; gap: 2px; }
+
+    /* Individual month label */
+    .bio-tab-label {
+      padding: 5px 11px;
+      font-size: 13px; line-height: 1;
+      color: {{t.palette.neutralSecondary}};
+      background: transparent; border: 0;
+      border-radius: 5px; cursor: pointer;
+      white-space: nowrap; user-select: none;
+      transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .bio-tab-label:hover { color: {{t.palette.themePrimary}}; }
+
+    {{!-- :has() parent-selector pattern: one rule per visible month. --}}
+    {{#with (JSONparse "[\"0 month\",\"1 month\",\"2 month\",\"3 month\",\"4 month\",\"5 month\",\"6 month\",\"7 month\",\"8 month\",\"9 month\",\"10 month\",\"11 month\"]") as |durations|}}
+      {{#each durations as |dur|}}
+        .bio-page-container:has(#bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}:checked) .bio-tab-label[for="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}"] {
+          color: {{t.palette.themePrimary}};
+          background: {{t.palette.white}};
+          font-weight: 600;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+        }
+      {{/each}}
+    {{/with}}
+    /* ── Card grid ────────────────────────────────────────────────── */
+
+    .bio-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 20px; padding: 0; margin: 0;
+    }
+    {{!-- Bi-directional fade on tab switch. We can't use `@keyframes`
+         because PnP's CSS scoper prefixes every top-level rule with the
+         instance #id, which turns `@keyframes` into invalid CSS and the
+         browser silently drops it. Instead:
+
+           • Hidden state (`.bio-grid .bio-card`): opacity:0, translateY(4px),
+             display:none. This is what cards fall back to when their
+             :checked match goes away.
+           • Visible state (the per-month `:checked ~ ...` rules below):
+             opacity:1, translateY(0), display:block.
+           • Transition on .bio-card covers both directions. The
+             `display 0.18s allow-discrete` part keeps an exiting card's
+             box rendered for the full 0.18s while opacity animates from
+             1→0, then discretely flips to display:none.
+           • `@starting-style` nested inside the visible rule provides
+             the from-state for ENTER transitions; without it, the
+             new card pops in at full opacity because there's no prior
+             rendered style to interpolate from. The scoper prefixes the
+             parent selector correctly and the nested at-rule rides
+             along inside. --}}
+    .bio-grid .bio-card {
+      display: none;
+      opacity: 0;
+      transform: translateY(4px);
+      list-style: none;
+    }
+    .bio-card {
+      box-sizing: border-box; padding: 16px;
+      background: {{t.palette.white}};
+      border: 1px solid {{t.palette.neutralLighter}};
+      border-radius: 8px;
+      box-shadow: 0 1.6px 3.6px rgba(0, 0, 0, 0.028), 0 0.3px 0.9px rgba(0, 0, 0, 0.042);
+      transition:
+        box-shadow 0.2s ease,
+        border-color 0.2s ease,
+        opacity 0.18s ease-out,
+        transform 0.18s ease-out,
+        display 0.18s allow-discrete;
+    }
+    .bio-card:hover {
+      box-shadow: 0 3.2px 7.2px rgba(0, 0, 0, 0.042), 0 0.6px 1.8px rgba(0, 0, 0, 0.054);
+      border-color: {{t.palette.neutralLight}};
+    }
+    .bio-photo {
+      width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+      border-radius: 4px; background: {{t.palette.neutralLighter}}; display: block;
+    }
+    .bio-photoFallback {
+      width: 100%; aspect-ratio: 1 / 1;
+      border-radius: 4px; background: {{t.palette.neutralLighter}};
+      color: {{t.palette.neutralTertiary}};
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .bio-name { font-size: 18px; font-weight: 700; line-height: 1.2; margin: 12px 0 8px 0; color: {{t.palette.neutralPrimary}}; }
+    .bio-meta { font-size: 13px; line-height: 1.5; margin-bottom: 10px; color: {{t.palette.neutralPrimary}}; }
+    .bio-meta strong { color: {{t.palette.neutralPrimary}}; }
+    .bio-narrative { font-size: 13px; line-height: 1.55; color: {{t.palette.neutralPrimary}}; }
+    .bio-narrative p { margin: 0 0 8px 0; }
+    .bio-narrative p:last-child { margin-bottom: 0; }
+
+    /* Per-month visibility rules (12 trailing months). Each rule pushes
+       the card into the visible state. The nested @starting-style gives
+       the entering card a from-state to transition from (without it,
+       newly-displayed cards snap straight to opacity:1). */
+    {{#with (JSONparse "[\"0 month\",\"1 month\",\"2 month\",\"3 month\",\"4 month\",\"5 month\",\"6 month\",\"7 month\",\"8 month\",\"9 month\",\"10 month\",\"11 month\"]") as |durations|}}
+      {{#each durations as |dur|}}
+        #bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}:checked ~ .bio-grid > .bio-card[data-month-key="{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}"] {
+          display: block;
+          opacity: 1;
+          transform: translateY(0);
+          @starting-style { opacity: 0; transform: translateY(4px); }
+        }
+      {{/each}}
+    {{/with}}
+
+    @media (max-width: 640px) { .bio-grid { grid-template-columns: 1fr; } }
+
+    {{#if @root.inputQueryText}}
+    /* Active-search overrides. */
+    .bio-page-container.bio-search-mode .bio-tabs,
+    .bio-page-container.bio-search-mode .bio-tab-input { display: none; }
+    .bio-page-container.bio-search-mode .bio-grid > .bio-card { display: none; }
+    .bio-page-container.bio-search-mode .bio-grid > .bio-card[data-search*="{{@root.inputQueryText}}" i] {
+      display: block;
+      opacity: 1;
+      transform: translateY(0);
+      @starting-style { opacity: 0; transform: translateY(4px); }
+    }
+    {{/if}}
+  </style>
+  {{/with}}
+
+  <div class="template bio-page-container{{#if @root.inputQueryText}} bio-search-mode{{/if}}">
+
+    {{!-- Radios: current month (hardcoded checked) + 11 loop-generated.
+         HTML normalizer mangles a Handlebars `{{#if}}` placed in an
+         attribute zone, so the first radio is split out. --}}
+    <input type="radio" name="bio-tab" class="bio-tab-input" id="bio-tab-{{getDate (moment) 'YYYY-MM'}}" checked>
+    {{#with (JSONparse "[\"1 month\",\"2 month\",\"3 month\",\"4 month\",\"5 month\",\"6 month\",\"7 month\",\"8 month\",\"9 month\",\"10 month\",\"11 month\"]") as |durations|}}
+      {{#each durations as |dur|}}<input type="radio" name="bio-tab" class="bio-tab-input" id="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}">{{/each}}
+    {{/with}}
+
+    <div class="bio-tabs">
+      <div class="bio-tabs-segmented">
+        {{!-- Previous-year column. Iterates the same 12-duration list but
+             only renders months whose YYYY equals (today - 1 year). On
+             the one month a year (December) when all 12 trailing months
+             share one calendar year, this column is :empty and CSS
+             hides it. --}}
+        <div class="bio-tab-year">
+          <div class="bio-tab-year-label">{{getDate (moment (moment) subtract='1 year') 'YYYY'}}</div>
+          <div class="bio-tab-months">
+            {{#with (JSONparse "[\"11 month\",\"10 month\",\"9 month\",\"8 month\",\"7 month\",\"6 month\",\"5 month\",\"4 month\",\"3 month\",\"2 month\",\"1 month\",\"0 month\"]") as |durations|}}
+              {{#each durations as |dur|}}
+                {{#if (eq (getDate (moment (moment) subtract=dur) 'YYYY') (getDate (moment (moment) subtract='1 year') 'YYYY'))}}
+                  <label class="bio-tab-label" for="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}">{{getDate (moment (moment) subtract=dur) 'MMM'}}</label>
+                {{/if}}
+              {{/each}}
+            {{/with}}
+          </div>
+        </div>
+
+        <div class="bio-tab-divider"></div>
+
+        {{!-- Current-year column. Same filter, this year's YYYY. --}}
+        <div class="bio-tab-year">
+          <div class="bio-tab-year-label">{{getDate (moment) 'YYYY'}}</div>
+          <div class="bio-tab-months">
+            {{#with (JSONparse "[\"11 month\",\"10 month\",\"9 month\",\"8 month\",\"7 month\",\"6 month\",\"5 month\",\"4 month\",\"3 month\",\"2 month\",\"1 month\",\"0 month\"]") as |durations|}}
+              {{#each durations as |dur|}}
+                {{#if (eq (getDate (moment (moment) subtract=dur) 'YYYY') (getDate (moment) 'YYYY'))}}
+                  <label class="bio-tab-label" for="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}">{{getDate (moment (moment) subtract=dur) 'MMM'}}</label>
+                {{/if}}
+              {{/each}}
+            {{/with}}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="bio-grid">
+      {{!-- "Older" when EffectiveDate is missing OR its YYYY-MM is
+           lexicographically less than the YYYY-MM of the oldest visible
+           tab (11 months ago). Field names below match this site's
+           Results-WP config: customFields exposes every list column
+           under its own PascalCase internal name. --}}
+      {{#each data.items as |item|}}
+        <li class="bio-card{{#if (or (not item.EffectiveDate) (lt (getDate item.EffectiveDate 'YYYY-MM') (getDate (moment (moment) subtract='11 month') 'YYYY-MM')))}} bio-card--older{{/if}}"
+            data-month-key="{{getDate item.EffectiveDate 'YYYY-MM'}}"
+            data-search="{{item.Title}} {{item.Position}} {{item.Location}}">
+
+          {{#if item.PhotoUrl}}
+            <img class="bio-photo" src="{{item.PhotoUrl}}" alt="{{item.Title}}">
+          {{else}}
+            <div class="bio-photoFallback">Photo coming soon</div>
+          {{/if}}
+
+          <h4 class="bio-name">{{item.Title}}</h4>
+
+          <div class="bio-meta">
+            {{#if item.Position}}<strong>Position:</strong> {{item.Position}}<br>{{/if}}
+            {{#if item.Location}}<strong>Location:</strong> {{item.Location}}<br>{{/if}}
+            {{#if item.EffectiveDate}}<strong>Start Date:</strong> {{getDate item.EffectiveDate 'M/D/YYYY'}}{{/if}}
+          </div>
+
+          {{#if item.Narrative}}
+            <div class="bio-narrative">{{{item.Narrative}}}</div>
+          {{/if}}
+        </li>
+      {{/each}}
+    </ul>
+  </div>
+
+</content>
+

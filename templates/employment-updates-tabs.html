@@ -1,0 +1,184 @@
+<content id="data-content">
+
+  {{!--
+    Top 3-tab section for an "employment updates" style page:
+      • Coming Soon            — EntryType="Coming Soon" with EffectiveDate >= today
+      • Promotions & Transfers — EntryType="Promotion"   within ±45 days of today
+      • Departing Employees    — EntryType="Departure"   within ±45 days of today
+
+    All filtering happens at template-render time using Handlebars comparison
+    helpers (eq, and, gte, lte) against ISO-formatted dates. The connected
+    data source returns all three EntryTypes (no date narrowing) so the
+    page never needs rebuilding as time moves.
+
+    Layout uses CSS grid rather than <table>/<tr>. The HTML parser
+    foster-parents any non-table content (including the whitespace generated
+    by an {{#each}} loop) OUT of a <table>, which drops the iterated rows.
+    Plain <div> grids don't have that quirk.
+
+    The chained `(moment (moment) subtract='45 day')` recipe keeps this
+    template portable across PnP Modern Search 4.19.1 (helper-date) and
+    4.21+ (the rewritten helperMomentCompat).
+
+    Expected `data.items` shape:
+      Title         — display name
+      EntryType     — one of "Coming Soon", "Promotion", "Departure"
+      EffectiveDate — date string parseable by dayjs
+      Position      — current position (also "From Position" for promotions)
+      NewPosition   — target position for promotions only
+      Location      — optional
+      Retiring      — boolean, optional; renders a "Retiring" badge
+  --}}
+
+  <style>
+    .emp-section { max-width: 1280px; }
+
+    /* Tab strip */
+    .emp-tab-input { position: absolute; opacity: 0; pointer-events: none; }
+    .emp-tabs {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      border-bottom: 1px solid {{@root.theme.palette.neutralLighter}};
+      margin-bottom: 16px;
+    }
+    .emp-tab-label {
+      padding: 10px 18px;
+      font-size: 14px;
+      cursor: pointer;
+      color: {{@root.theme.palette.neutralSecondary}};
+      border-bottom: 3px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s ease, border-color 0.15s ease;
+      user-select: none;
+    }
+    .emp-tab-label:hover { color: {{@root.theme.palette.themePrimary}}; }
+    {{!-- :has() parent-selector pattern: labels are inside .emp-tabs but
+         radios are at the top of .emp-section, so adjacent-sibling (+)
+         can't match. :has() walks up to a common ancestor. --}}
+    .emp-section:has(#emp-tab-coming-soon:checked) .emp-tab-label[for="emp-tab-coming-soon"],
+    .emp-section:has(#emp-tab-promotion:checked)   .emp-tab-label[for="emp-tab-promotion"],
+    .emp-section:has(#emp-tab-departure:checked)   .emp-tab-label[for="emp-tab-departure"] {
+      color: {{@root.theme.palette.themePrimary}};
+      border-bottom-color: {{@root.theme.palette.themePrimary}};
+      font-weight: 600;
+    }
+
+    /* Panes */
+    .emp-pane { display: none; }
+    #emp-tab-coming-soon:checked ~ .emp-pane--coming-soon,
+    #emp-tab-promotion:checked   ~ .emp-pane--promotion,
+    #emp-tab-departure:checked   ~ .emp-pane--departure { display: block; }
+
+    /* CSS-grid "table" */
+    .emp-row {
+      display: grid;
+      grid-template-columns: 1.6fr 2fr 1.4fr 1fr;
+      column-gap: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: {{@root.theme.palette.neutralPrimary}};
+      border-bottom: 1px solid {{@root.theme.palette.neutralLighter}};
+      align-items: start;
+    }
+    .emp-row--head {
+      font-weight: 600;
+      border-bottom: 1px solid {{@root.theme.palette.neutralLight}};
+    }
+    .emp-row--empty .emp-cell { grid-column: 1 / -1; text-align: center; color: {{@root.theme.palette.neutralSecondary}}; }
+    .emp-name { font-weight: 600; }
+    .emp-retire-badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 8px;
+      font-size: 11px;
+      border-radius: 10px;
+      background: {{@root.theme.palette.neutralLighter}};
+      color: {{@root.theme.palette.neutralSecondary}};
+    }
+    .emp-pane:has(.emp-row:not(.emp-row--empty):not(.emp-row--head)) .emp-row--empty { display: none; }
+  </style>
+
+  <div class="template emp-section">
+    {{!-- Radios first so the :checked ~ .emp-pane CSS works. --}}
+    <input type="radio" name="emp-tab" class="emp-tab-input" id="emp-tab-coming-soon" checked>
+    <input type="radio" name="emp-tab" class="emp-tab-input" id="emp-tab-promotion">
+    <input type="radio" name="emp-tab" class="emp-tab-input" id="emp-tab-departure">
+
+    <div class="emp-tabs">
+      <label class="emp-tab-label" for="emp-tab-coming-soon">Coming Soon</label>
+      <label class="emp-tab-label" for="emp-tab-promotion">Promotions &amp; Transfers</label>
+      <label class="emp-tab-label" for="emp-tab-departure">Departing Employees</label>
+    </div>
+
+    {{!-- Coming Soon — future EffectiveDate --}}
+    <div class="emp-pane emp-pane--coming-soon">
+      <div class="emp-row emp-row--head">
+        <div class="emp-cell">Employee Name</div>
+        <div class="emp-cell">Position</div>
+        <div class="emp-cell">Location</div>
+        <div class="emp-cell">Start Date</div>
+      </div>
+      <div class="emp-row emp-row--empty"><div class="emp-cell">No upcoming new employees.</div></div>
+      {{#each data.items}}
+        {{#if (and (eq this.EntryType "Coming Soon")
+                   (gte (getDate this.EffectiveDate 'YYYY-MM-DD') (getDate (moment) 'YYYY-MM-DD')))}}
+          <div class="emp-row">
+            <div class="emp-cell emp-name">{{this.Title}}</div>
+            <div class="emp-cell">{{this.Position}}</div>
+            <div class="emp-cell">{{this.Location}}</div>
+            <div class="emp-cell">{{getDate this.EffectiveDate 'M/D/YYYY'}}</div>
+          </div>
+        {{/if}}
+      {{/each}}
+    </div>
+
+    {{!-- Promotions & Transfers — ±45 days of today --}}
+    <div class="emp-pane emp-pane--promotion">
+      <div class="emp-row emp-row--head">
+        <div class="emp-cell">Employee Name</div>
+        <div class="emp-cell">From Position</div>
+        <div class="emp-cell">To Position</div>
+        <div class="emp-cell">Effective Date</div>
+      </div>
+      <div class="emp-row emp-row--empty"><div class="emp-cell">No promotions or transfers in this window.</div></div>
+      {{#each data.items}}
+        {{#if (and (eq this.EntryType "Promotion")
+                   (gte (getDate this.EffectiveDate 'YYYY-MM-DD') (getDate (moment (moment) subtract='45 day') 'YYYY-MM-DD'))
+                   (lte (getDate this.EffectiveDate 'YYYY-MM-DD') (getDate (moment (moment) add='45 day') 'YYYY-MM-DD')))}}
+          <div class="emp-row">
+            <div class="emp-cell emp-name">{{this.Title}}</div>
+            <div class="emp-cell">{{this.Position}}</div>
+            <div class="emp-cell">{{this.NewPosition}}</div>
+            <div class="emp-cell">{{getDate this.EffectiveDate 'M/D/YYYY'}}</div>
+          </div>
+        {{/if}}
+      {{/each}}
+    </div>
+
+    {{!-- Departing Employees — ±45 days of today --}}
+    <div class="emp-pane emp-pane--departure">
+      <div class="emp-row emp-row--head">
+        <div class="emp-cell">Employee Name</div>
+        <div class="emp-cell">Position</div>
+        <div class="emp-cell">Location</div>
+        <div class="emp-cell">Departure Date</div>
+      </div>
+      <div class="emp-row emp-row--empty"><div class="emp-cell">No departures in this window.</div></div>
+      {{#each data.items}}
+        {{#if (and (eq this.EntryType "Departure")
+                   (gte (getDate this.EffectiveDate 'YYYY-MM-DD') (getDate (moment (moment) subtract='45 day') 'YYYY-MM-DD'))
+                   (lte (getDate this.EffectiveDate 'YYYY-MM-DD') (getDate (moment (moment) add='45 day') 'YYYY-MM-DD')))}}
+          <div class="emp-row">
+            <div class="emp-cell emp-name">
+              {{this.Title}}
+              {{#if this.Retiring}}<span class="emp-retire-badge">Retiring</span>{{/if}}
+            </div>
+            <div class="emp-cell">{{this.Position}}</div>
+            <div class="emp-cell">{{this.Location}}</div>
+            <div class="emp-cell">{{getDate this.EffectiveDate 'M/D/YYYY'}}</div>
+          </div>
+        {{/if}}
+      {{/each}}
+    </div>
+  </div>
+
+</content>

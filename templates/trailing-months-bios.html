@@ -1,0 +1,199 @@
+<content id="data-content">
+
+  {{!--
+    Trailing-12-months tab strip + card grid for PnP Modern Search.
+
+    The tab strip is generated entirely client-side from "now" — no PnP
+    Verticals, no per-tab Search Results web part, no SPFx helper additions,
+    no monthly rebuild. The page works for years without ever being edited.
+
+    Two tricks make it portable:
+
+      1. JSONparse a static array of duration strings ["0 month", "1 month",
+         ..., "11 month"]. Iterating that array gives us per-month context
+         without an out-of-template loop or build step.
+      2. Nested moment + getDate:
+           {{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}
+         Inner `(moment)` produces today as a date string; middle
+         `(moment STRING subtract=dur)` shifts it; outer `getDate` formats.
+         The chain works on both PnP 4.19.1 (helper-date) and 4.21+
+         (the rewritten helperMomentCompat), so the template is portable
+         across versions.
+
+    Tab switching is pure CSS via hidden <input type="radio"> + :checked ~
+    sibling selectors — no JavaScript. Active-tab styling uses :has()
+    because the labels live in a different DOM container than the radios.
+
+    Expected `data.items` shape:
+      Title         — display name (required)
+      EffectiveDate — date string parseable by dayjs (required for bucketing)
+      Position      — optional, shown in card meta
+      Location      — optional, shown in card meta
+      Narrative     — optional, HTML, shown as body
+      PhotoUrl      — optional, shown as card image
+
+    Wire any data source (SharePoint Search, Microsoft Search, or a custom
+    extensibility library) that returns these fields. See the project README
+    for example web-part configurations.
+  --}}
+
+  <style>
+    .bio-page-container { max-width: 1280px; }
+
+    /* Tab strip */
+    .bio-tab-input { position: absolute; opacity: 0; pointer-events: none; }
+    .bio-tabs {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      border-bottom: 1px solid {{@root.theme.palette.neutralLighter}};
+      margin-bottom: 20px;
+    }
+    .bio-tab-label {
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      color: {{@root.theme.palette.neutralSecondary}};
+      border-bottom: 3px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s ease, border-color 0.15s ease;
+      user-select: none;
+    }
+    .bio-tab-label:hover { color: {{@root.theme.palette.themePrimary}}; }
+
+    {{!-- :has() parent-selector pattern. The labels live inside .bio-tabs but
+         the radios are top-level under .bio-page-container, so the usual
+         `:checked + label` adjacent-sibling rule can't reach across
+         containers. :has() walks up to a common ancestor and finds the
+         checked radio. One rule per visible month + the "Older" bucket. --}}
+    {{#with (JSONparse "[\"0 month\",\"1 month\",\"2 month\",\"3 month\",\"4 month\",\"5 month\",\"6 month\",\"7 month\",\"8 month\",\"9 month\",\"10 month\",\"11 month\"]") as |durations|}}
+      {{#each durations as |dur|}}
+        .bio-page-container:has(#bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}:checked) .bio-tab-label[for="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}"],
+      {{/each}}
+    {{/with}}
+    .bio-page-container:has(#bio-tab-older:checked) .bio-tab-label[for="bio-tab-older"] {
+      color: {{@root.theme.palette.themePrimary}};
+      border-bottom-color: {{@root.theme.palette.themePrimary}};
+      font-weight: 600;
+    }
+
+    /* Card grid + card */
+    .bio-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 20px; padding: 0; margin: 0;
+    }
+    .bio-grid .bio-card { display: none; list-style: none; }
+    .bio-card {
+      box-sizing: border-box;
+      padding: 16px;
+      background: {{@root.theme.palette.white}};
+      border: 1px solid {{@root.theme.palette.neutralLighter}};
+      border-radius: 8px;
+      box-shadow: 0 1.6px 3.6px rgba(0, 0, 0, 0.028), 0 0.3px 0.9px rgba(0, 0, 0, 0.042);
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .bio-card:hover {
+      box-shadow: 0 3.2px 7.2px rgba(0, 0, 0, 0.042), 0 0.6px 1.8px rgba(0, 0, 0, 0.054);
+      border-color: {{@root.theme.palette.neutralLight}};
+    }
+    .bio-photo {
+      width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+      border-radius: 4px; background: {{@root.theme.palette.neutralLighter}}; display: block;
+    }
+    .bio-photoFallback {
+      width: 100%; aspect-ratio: 1 / 1;
+      border-radius: 4px; background: {{@root.theme.palette.neutralLighter}};
+      color: {{@root.theme.palette.neutralTertiary}};
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .bio-name { font-size: 18px; font-weight: 700; line-height: 1.2; margin: 12px 0 8px 0; color: {{@root.theme.palette.neutralPrimary}}; }
+    .bio-meta { font-size: 13px; line-height: 1.5; margin-bottom: 10px; color: {{@root.theme.palette.neutralPrimary}}; }
+    .bio-meta strong { color: {{@root.theme.palette.neutralPrimary}}; }
+    .bio-narrative { font-size: 13px; line-height: 1.55; color: {{@root.theme.palette.neutralPrimary}}; }
+    .bio-narrative p { margin: 0 0 8px 0; }
+    .bio-narrative p:last-child { margin-bottom: 0; }
+
+    /* Per-month visibility rules (12 trailing months) */
+    {{#with (JSONparse "[\"0 month\",\"1 month\",\"2 month\",\"3 month\",\"4 month\",\"5 month\",\"6 month\",\"7 month\",\"8 month\",\"9 month\",\"10 month\",\"11 month\"]") as |durations|}}
+      {{#each durations as |dur|}}
+        #bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}:checked ~ .bio-grid > .bio-card[data-month-key="{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}"] { display: block; }
+      {{/each}}
+    {{/with}}
+    /* Older bucket */
+    #bio-tab-older:checked ~ .bio-grid > .bio-card.bio-card--older { display: block; }
+
+    @media (max-width: 640px) { .bio-grid { grid-template-columns: 1fr; } }
+
+    {{#if @root.inputQueryText}}
+    /* ── Active-search overrides ──────────────────────────────────────────
+       When the connected Search Box has a query, hide the tab strip and
+       show every card whose data-search attribute contains the query
+       (case-insensitive substring). */
+    .bio-page-container.bio-search-mode .bio-tabs,
+    .bio-page-container.bio-search-mode .bio-tab-input { display: none; }
+    .bio-page-container.bio-search-mode .bio-grid > .bio-card { display: none; }
+    .bio-page-container.bio-search-mode .bio-grid > .bio-card[data-search*="{{@root.inputQueryText}}" i] { display: block; }
+    {{/if}}
+  </style>
+
+  <div class="template bio-page-container{{#if @root.inputQueryText}} bio-search-mode{{/if}}">
+
+    {{!-- 12 hidden radios + the "Older" radio. The first radio (current
+         month) is hardcoded with `checked`; the rest are loop-generated.
+         Handlebars `{{#if}}` inside an HTML attribute zone gets mangled by
+         HTML normalization (becomes `{{#if=""}}`), so the first one is
+         split out instead of using a loop-with-conditional. --}}
+    <input type="radio" name="bio-tab" class="bio-tab-input" id="bio-tab-{{getDate (moment) 'YYYY-MM'}}" checked>
+    {{#with (JSONparse "[\"1 month\",\"2 month\",\"3 month\",\"4 month\",\"5 month\",\"6 month\",\"7 month\",\"8 month\",\"9 month\",\"10 month\",\"11 month\"]") as |durations|}}
+      {{#each durations as |dur|}}<input type="radio" name="bio-tab" class="bio-tab-input" id="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}">{{/each}}
+    {{/with}}
+    <input type="radio" name="bio-tab" class="bio-tab-input" id="bio-tab-older">
+
+    <div class="bio-tabs">
+      {{!-- Labels render in chronological order (oldest first) so the newest
+           tab ends up on the right. The "Older" bucket sits to the left of
+           the oldest month since by definition it's older than that. --}}
+      <label class="bio-tab-label" for="bio-tab-older">Older</label>
+      {{#with (JSONparse "[\"11 month\",\"10 month\",\"9 month\",\"8 month\",\"7 month\",\"6 month\",\"5 month\",\"4 month\",\"3 month\",\"2 month\",\"1 month\",\"0 month\"]") as |durations|}}
+        {{#each durations as |dur|}}
+          <label class="bio-tab-label" for="bio-tab-{{getDate (moment (moment) subtract=dur) 'YYYY-MM'}}">
+            {{getDate (moment (moment) subtract=dur) 'MMM YYYY'}}
+          </label>
+        {{/each}}
+      {{/with}}
+    </div>
+
+    <ul class="bio-grid">
+      {{!-- A card is bucketed into "Older" when its date is missing OR its
+           YYYY-MM is lexicographically less than the YYYY-MM of the oldest
+           visible tab (11 months ago). Inlined per-row because lifting the
+           string into an outer {{#with}} shifts the Handlebars context away
+           from `data.items`. --}}
+      {{#each data.items as |item|}}
+        <li class="bio-card{{#if (or (not item.EffectiveDate) (lt (getDate item.EffectiveDate 'YYYY-MM') (getDate (moment (moment) subtract='11 month') 'YYYY-MM')))}} bio-card--older{{/if}}"
+            data-month-key="{{getDate item.EffectiveDate 'YYYY-MM'}}"
+            data-search="{{item.Title}} {{item.Position}} {{item.Location}}">
+
+          {{#if item.PhotoUrl}}
+            <img class="bio-photo" src="{{item.PhotoUrl}}" alt="{{item.Title}}">
+          {{else}}
+            <div class="bio-photoFallback">Photo coming soon</div>
+          {{/if}}
+
+          <h4 class="bio-name">{{item.Title}}</h4>
+
+          <div class="bio-meta">
+            {{#if item.Position}}<strong>Position:</strong> {{item.Position}}<br>{{/if}}
+            {{#if item.Location}}<strong>Location:</strong> {{item.Location}}<br>{{/if}}
+            {{#if item.EffectiveDate}}<strong>Start Date:</strong> {{getDate item.EffectiveDate 'M/D/YYYY'}}{{/if}}
+          </div>
+
+          {{#if item.Narrative}}
+            <div class="bio-narrative">{{{item.Narrative}}}</div>
+          {{/if}}
+        </li>
+      {{/each}}
+    </ul>
+  </div>
+
+</content>
